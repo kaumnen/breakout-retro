@@ -1,0 +1,19 @@
+[pygbag]
+# Basic pygbag configuration
+name = "Breakout Retro"
+author = "Developer"
+version = "1.0.0"
+description = "Classic Breakout game"
+
+# Display settings
+width = 800
+height = 600
+fps = 60
+
+# Build settings
+optimize = true
+archive = false
+ume_block = 0
+
+# Template settings (use default for now)
+template = "custom"
