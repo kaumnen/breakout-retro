@@ -1,3 +1,6 @@
+> [!IMPORTANT]  
+> Everything in this repo has been vibe-coded! Check out blog post linked above to learn more! Breakout game available at: https://breakout.kaumnen.com/
+
 # Breakout Retro
 
 A classic Breakout game built with Python 3.13, pygame, and pygbag for web deployment. Experience the nostalgic arcade gameplay with modern power-ups and smooth physics!
