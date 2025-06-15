@@ -1,5 +1,5 @@
 > [!IMPORTANT]  
-> Everything in this repo has been vibe-coded! Check out blog post linked above to learn more! Breakout game available at: https://breakout.kaumnen.com/
+> This repository has been vibe-coded! See the linked blog post to learn more. Breakout game available at: https://breakout.kaumnen.com/
 
 # Breakout Retro
 
