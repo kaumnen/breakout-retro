@@ -1,10 +1,13 @@
 """Core game logic and state management."""
 
 import asyncio
-import pygame
 import math
+import random
 from enum import Enum
-from .entities import Paddle, Ball, Brick, PowerUp
+
+import pygame
+
+from .entities import Paddle, Ball, PowerUp
 from .entities.brick import BrickGrid
 from .utils.constants import *
 from .utils.helpers import circle_rect_collision, get_collision_normal
@@ -31,9 +34,12 @@ class Game:
         
         # Initialize fonts
         pygame.font.init()
-        self.font_large = pygame.font.Font(None, 48)
-        self.font_medium = pygame.font.Font(None, 32)
-        self.font_small = pygame.font.Font(None, 24)
+        self.font_title = pygame.font.Font(None, 76)
+        self.font_large = pygame.font.Font(None, 52)
+        self.font_medium = pygame.font.Font(None, 30)
+        self.font_small = pygame.font.Font(None, 22)
+        self.font_tiny = pygame.font.Font(None, 18)
+        self.background = self._create_background()
         
         # Game state
         self.state = GameState.MENU
@@ -51,17 +57,14 @@ class Game:
         self.lives = INITIAL_LIVES
         self.level = 1
         
-        # Collision handling
-        self.last_collision_time = 0
-        self.collision_cooldown = 0.1  # Increased from 0.05 to 0.1 seconds
-        
         # Power-up feedback
         self.powerup_message = ""
         self.powerup_message_timer = 0
+        self.slow_ball_timer = 0.0
         
         # Input handling
         self.keys_pressed = {}
-        self.mouse_pos = (0, 0)
+        self.mouse_pos = None
         
         # Initialize game objects
         self.reset_game()
@@ -90,6 +93,42 @@ class Game:
         self.score = 0
         self.lives = INITIAL_LIVES
         self.level = 1
+        self.powerup_message = ""
+        self.powerup_message_timer = 0
+        self.slow_ball_timer = 0.0
+        self.keys_pressed.clear()
+
+    def _create_background(self) -> pygame.Surface:
+        """Create the static gradient, stars, and perspective grid."""
+        surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        for y in range(SCREEN_HEIGHT):
+            ratio = y / SCREEN_HEIGHT
+            color = tuple(
+                int(top + (bottom - top) * ratio)
+                for top, bottom in zip(BACKGROUND_TOP, BACKGROUND_BOTTOM)
+            )
+            pygame.draw.line(surface, color, (0, y), (SCREEN_WIDTH, y))
+
+        rng = random.Random(1986)
+        for _ in range(70):
+            x = rng.randrange(SCREEN_WIDTH)
+            y = rng.randrange(48, SCREEN_HEIGHT - 90)
+            shade = rng.choice([(36, 48, 88), (43, 61, 103), (56, 53, 105)])
+            surface.set_at((x, y), shade)
+
+        horizon = SCREEN_HEIGHT - 105
+        grid_color = (31, 34, 78)
+        pygame.draw.line(surface, (52, 42, 103), (0, horizon), (SCREEN_WIDTH, horizon), 2)
+        for x in range(-200, SCREEN_WIDTH + 201, 80):
+            pygame.draw.line(surface, grid_color, (SCREEN_WIDTH // 2, horizon), (x, SCREEN_HEIGHT))
+        for y in range(horizon + 20, SCREEN_HEIGHT, 20):
+            pygame.draw.line(surface, grid_color, (0, y), (SCREEN_WIDTH, y))
+        return surface
+
+    def start_game(self):
+        """Start a fresh run from any non-playing state."""
+        self.reset_game()
+        self.state = GameState.PLAYING
     
     def handle_events(self):
         """Handle pygame events."""
@@ -102,25 +141,29 @@ class Game:
                 
                 # State-specific key handling
                 if self.state == GameState.MENU:
-                    if event.key == pygame.K_SPACE:
-                        self.state = GameState.PLAYING
+                    if event.key in (pygame.K_SPACE, pygame.K_RETURN):
+                        self.start_game()
                 
                 elif self.state == GameState.PLAYING:
                     if event.key == pygame.K_ESCAPE:
                         self.state = GameState.PAUSED
+                    elif event.key == pygame.K_SPACE:
+                        if self.paddle.stuck_ball:
+                            self.paddle.release_stuck_ball()
+                        else:
+                            self.paddle.fire_laser()
                 
                 elif self.state == GameState.PAUSED:
                     if event.key == pygame.K_ESCAPE:
                         self.state = GameState.PLAYING
                     elif event.key == pygame.K_r:
-                        self.reset_game()
-                        self.state = GameState.PLAYING
+                        self.start_game()
                 
                 elif self.state in [GameState.GAME_OVER, GameState.VICTORY]:
-                    if event.key == pygame.K_r:
-                        self.reset_game()
-                        self.state = GameState.PLAYING
+                    if event.key in (pygame.K_r, pygame.K_SPACE, pygame.K_RETURN):
+                        self.start_game()
                     elif event.key == pygame.K_ESCAPE:
+                        self.reset_game()
                         self.state = GameState.MENU
             
             elif event.type == pygame.KEYUP:
@@ -128,6 +171,20 @@ class Game:
             
             elif event.type == pygame.MOUSEMOTION:
                 self.mouse_pos = event.pos
+
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                self.mouse_pos = event.pos
+                if self.state == GameState.MENU:
+                    self.start_game()
+                elif self.state == GameState.PLAYING:
+                    if self.paddle.stuck_ball:
+                        self.paddle.release_stuck_ball()
+                    else:
+                        self.paddle.fire_laser()
+
+            elif event.type == pygame.WINDOWFOCUSLOST:
+                if self.state == GameState.PLAYING:
+                    self.state = GameState.PAUSED
     
     def update(self, dt: float):
         """Update game logic.
@@ -137,6 +194,9 @@ class Game:
         """
         if self.state != GameState.PLAYING:
             return
+
+        # Avoid tunnelling and giant timer jumps when a browser tab wakes up.
+        dt = min(max(dt, 0.0), 1 / 30)
         
         # Update game objects
         self.paddle.handle_input(self.keys_pressed, self.mouse_pos)
@@ -157,6 +217,12 @@ class Game:
                 self.powerups.remove(powerup)
         
         self.brick_grid.update(dt)
+
+        if self.slow_ball_timer > 0:
+            self.slow_ball_timer = max(0.0, self.slow_ball_timer - dt)
+            if self.slow_ball_timer == 0:
+                for ball in self.balls:
+                    ball.set_slowed(False)
         
         # Check collisions
         self.check_collisions()
@@ -172,59 +238,46 @@ class Game:
     
     def check_collisions(self):
         """Check and handle all collision detection."""
-        current_time = pygame.time.get_ticks() / 1000.0  # Convert to seconds
-        
         # Check collisions for each ball
         for ball in self.balls:
             ball_pos = ball.get_position()
             
             # Ball-paddle collision
             if circle_rect_collision(ball_pos, ball.radius, self.paddle.rect):
-                # Only bounce if ball is moving downward and enough time has passed
-                if ball.velocity_y > 0 and (current_time - self.last_collision_time) > self.collision_cooldown:
+                # Only bounce if the ball is approaching the paddle.
+                if ball.velocity_y > 0:
+                    ball.y = self.paddle.rect.top - ball.radius - 1
                     # Check for sticky paddle
                     if self.paddle.is_sticky and not self.paddle.stuck_ball:
                         self.paddle.stick_ball(ball)
                     else:
                         collision_factor = self.paddle.get_collision_factor(ball_pos[0])
                         ball.bounce_off_paddle(collision_factor)
-                    self.last_collision_time = current_time
             
-            # Ball-brick collisions - only if enough time has passed since last collision
-            if (current_time - self.last_collision_time) > self.collision_cooldown:
-                active_bricks = self.brick_grid.get_active_bricks()
-                closest_brick = None
-                closest_distance = float('inf')
-                
-                for brick in active_bricks:
-                    if circle_rect_collision(ball_pos, ball.radius, brick.rect):
-                        # Calculate distance from ball to brick center
-                        brick_center = (brick.x + brick.width // 2, brick.y + brick.height // 2)
-                        distance = ((ball_pos[0] - brick_center[0])**2 + (ball_pos[1] - brick_center[1])**2)**0.5
-                        
-                        if distance < closest_distance:
-                            closest_distance = distance
-                            closest_brick = brick
-                
-                # Handle collision with closest brick only
-                if closest_brick:
-                    collision_normal = get_collision_normal(ball_pos, closest_brick.rect)
-                    ball.bounce_off_brick(collision_normal, closest_brick.rect)
-                    
-                    # Hit the brick and add score
-                    points, should_drop_powerup = closest_brick.hit()
-                    self.score += points
-                    
-                    # Drop power-up if needed
-                    if should_drop_powerup:
-                        powerup_x = closest_brick.x + closest_brick.width // 2
-                        powerup_y = closest_brick.y + closest_brick.height // 2
-                        powerup = PowerUp(powerup_x, powerup_y)
-                        self.powerups.append(powerup)
-                    
-                    # Update collision time
-                    self.last_collision_time = current_time
-                    break  # Only one brick collision per ball per frame
+            # Resolve at most one brick per ball, independently. A global
+            # cooldown made extra balls pass through bricks after another hit.
+            active_bricks = self.brick_grid.get_active_bricks()
+            colliding_bricks = [
+                brick for brick in active_bricks
+                if circle_rect_collision(ball_pos, ball.radius, brick.rect)
+            ]
+            if colliding_bricks:
+                closest_brick = min(
+                    colliding_bricks,
+                    key=lambda brick: (
+                        (ball_pos[0] - brick.rect.centerx) ** 2
+                        + (ball_pos[1] - brick.rect.centery) ** 2
+                    ),
+                )
+                collision_normal = get_collision_normal(
+                    ball.get_previous_position(), closest_brick.rect
+                )
+                ball.bounce_off_brick(collision_normal, closest_brick.rect)
+                points, should_drop_powerup = closest_brick.hit()
+                self.score += points
+
+                if should_drop_powerup:
+                    self.powerups.append(PowerUp(*closest_brick.rect.center))
         
         # Power-up collection
         for powerup in self.powerups[:]:
@@ -284,19 +337,19 @@ class Game:
                 for i in range(2):  # Add 2 more balls
                     new_ball = Ball(main_ball.x, main_ball.y)
                     # Give them different angles
-                    import random
                     angle = random.uniform(30, 150)
                     new_ball.reset_velocity(math.radians(angle))
+                    if self.slow_ball_timer > 0:
+                        new_ball.set_slowed(True)
                     self.balls.append(new_ball)
         
         elif powerup.type == POWERUP_EXTRA_LIFE:
             self.lives += 1
         
         elif powerup.type == POWERUP_SLOW_BALL:
-            # Slow down all balls
+            self.slow_ball_timer = POWERUP_DURATION
             for ball in self.balls:
-                ball.velocity_x *= 0.7
-                ball.velocity_y *= 0.7
+                ball.set_slowed(True)
         
         elif powerup.type in [POWERUP_LARGE_PADDLE, POWERUP_SMALL_PADDLE, 
                              POWERUP_LASER_PADDLE, POWERUP_STICKY_PADDLE]:
@@ -318,6 +371,10 @@ class Game:
     
     def check_game_conditions(self):
         """Check for game over, victory, or life loss conditions."""
+        if self.brick_grid.is_cleared():
+            self.state = GameState.VICTORY
+            return
+
         # Check if all balls fell below screen
         if not self.balls:
             self.lives -= 1
@@ -325,22 +382,19 @@ class Game:
             if self.lives <= 0:
                 self.state = GameState.GAME_OVER
             else:
-                # Reset with one ball
+                # Begin a clean serve without carrying transient effects over.
+                self.paddle = Paddle()
+                self.powerups.clear()
+                self.slow_ball_timer = 0.0
                 new_ball = Ball()
                 paddle_center = self.paddle.get_top_center()
                 new_ball.set_position(paddle_center[0], paddle_center[1] - 50)
                 self.balls = [new_ball]
-                # Keep reference to main ball for compatibility
                 self.ball = new_ball
-        
-        # Check for victory (all bricks destroyed)
-        if self.brick_grid.is_cleared():
-            self.state = GameState.VICTORY
     
     def draw(self):
         """Render the game."""
-        # Clear screen
-        self.screen.fill(BLACK)
+        self.screen.blit(self.background, (0, 0))
         
         if self.state == GameState.MENU:
             self.draw_menu()
@@ -361,27 +415,46 @@ class Game:
     
     def draw_menu(self):
         """Draw the main menu."""
-        title_text = self.font_large.render("BREAKOUT RETRO", True, WHITE)
-        title_rect = title_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 100))
-        self.screen.blit(title_text, title_rect)
-        
-        start_text = self.font_medium.render("Press SPACE to Start", True, WHITE)
-        start_rect = start_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-        self.screen.blit(start_text, start_rect)
-        
-        controls_text = [
-            "Controls:",
-            "Arrow Keys or A/D - Move Paddle",
-            "Mouse - Follow Mouse Position",
-            "ESC - Pause Game"
+        # A compact brick mark makes the menu feel related to the playfield.
+        logo_colors = [RED, ORANGE, YELLOW, GREEN, CYAN, PURPLE]
+        for index, color in enumerate(logo_colors):
+            rect = pygame.Rect(263 + index * 46, 112, 40, 8)
+            pygame.draw.rect(self.screen, color, rect, border_radius=3)
+
+        shadow = self.font_title.render("BREAKOUT", True, (31, 45, 91))
+        title = self.font_title.render("BREAKOUT", True, WHITE)
+        self.screen.blit(shadow, shadow.get_rect(center=(404, 178)))
+        self.screen.blit(title, title.get_rect(center=(400, 174)))
+
+        subtitle = self.font_medium.render("R E T R O   R E M I X", True, ACCENT)
+        self.screen.blit(subtitle, subtitle.get_rect(center=(400, 224)))
+
+        panel = pygame.Rect(214, 282, 372, 198)
+        pygame.draw.rect(self.screen, PANEL, panel, border_radius=14)
+        pygame.draw.rect(self.screen, PANEL_BORDER, panel, 2, border_radius=14)
+
+        start_text = self.font_medium.render("SPACE / CLICK TO PLAY", True, YELLOW)
+        self.screen.blit(start_text, start_text.get_rect(center=(400, 323)))
+        pygame.draw.line(self.screen, PANEL_BORDER, (250, 348), (550, 348), 1)
+
+        controls = [
+            ("MOVE", "mouse  /  arrows  /  A D"),
+            ("ACTION", "space or click"),
+            ("PAUSE", "escape"),
         ]
-        
-        y_offset = SCREEN_HEIGHT // 2 + 80
-        for line in controls_text:
-            text = self.font_small.render(line, True, WHITE)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
-            self.screen.blit(text, text_rect)
-            y_offset += 30
+        for row, (label, value) in enumerate(controls):
+            y = 374 + row * 31
+            label_surface = self.font_tiny.render(label, True, MUTED_TEXT)
+            value_surface = self.font_small.render(value, True, WHITE)
+            self.screen.blit(label_surface, (260, y + 3))
+            self.screen.blit(value_surface, (352, y))
+
+        footer = self.font_tiny.render(
+            "CLEAR THE WALL  •  CATCH POWER-UPS  •  KEEP THE BALL ALIVE",
+            True,
+            MUTED_TEXT,
+        )
+        self.screen.blit(footer, footer.get_rect(center=(400, 536)))
     
     def draw_game(self):
         """Draw the main game screen."""
@@ -402,99 +475,93 @@ class Game:
     
     def draw_ui(self):
         """Draw game UI elements."""
-        # Score - top left
-        score_text = self.font_medium.render(f"Score: {self.score}", True, WHITE)
-        self.screen.blit(score_text, (10, 10))
-        
-        # Lives - bottom left to avoid brick overlap
-        lives_text = self.font_medium.render(f"Lives: {self.lives}", True, WHITE)
-        lives_rect = lives_text.get_rect(bottomleft=(10, SCREEN_HEIGHT - 10))
-        self.screen.blit(lives_text, lives_rect)
-        
-        # Level - bottom right
-        level_text = self.font_medium.render(f"Level: {self.level}", True, WHITE)
-        level_rect = level_text.get_rect(bottomright=(SCREEN_WIDTH - 10, SCREEN_HEIGHT - 10))
-        self.screen.blit(level_text, level_rect)
+        hud = pygame.Rect(10, 9, SCREEN_WIDTH - 20, 43)
+        pygame.draw.rect(self.screen, PANEL, hud, border_radius=9)
+        pygame.draw.rect(self.screen, PANEL_BORDER, hud, 1, border_radius=9)
+
+        score_label = self.font_tiny.render("SCORE", True, MUTED_TEXT)
+        score_value = self.font_medium.render(f"{self.score:06d}", True, WHITE)
+        self.screen.blit(score_label, (25, 17))
+        self.screen.blit(score_value, (82, 13))
+
+        lives_label = self.font_tiny.render("LIVES", True, MUTED_TEXT)
+        self.screen.blit(lives_label, (326, 17))
+        visible_lives = min(self.lives, 5)
+        for index in range(visible_lives):
+            center = (385 + index * 18, 30)
+            pygame.draw.circle(self.screen, (92, 31, 59), center, 6)
+            pygame.draw.circle(self.screen, RED, center, 4)
+        if self.lives > visible_lives:
+            extra_lives = self.font_tiny.render(f"+{self.lives - visible_lives}", True, RED)
+            self.screen.blit(extra_lives, (475, 22))
+
+        level_label = self.font_tiny.render("STAGE", True, MUTED_TEXT)
+        level_value = self.font_medium.render(f"{self.level:02d}", True, CYAN)
+        self.screen.blit(level_label, (682, 17))
+        self.screen.blit(level_value, (746, 13))
+
+        self.draw_powerup_timers()
         
         # Power-up message
         if self.powerup_message:
-            message_text = self.font_large.render(self.powerup_message, True, (255, 255, 0))
-            message_rect = message_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
+            message_text = self.font_large.render(self.powerup_message, True, YELLOW)
+            message_rect = message_text.get_rect(center=(SCREEN_WIDTH // 2, 315))
             
             # Draw background for message
             bg_rect = message_rect.inflate(20, 10)
-            pygame.draw.rect(self.screen, (0, 0, 0), bg_rect)
-            pygame.draw.rect(self.screen, (255, 255, 0), bg_rect, 2)
+            pygame.draw.rect(self.screen, PANEL, bg_rect, border_radius=8)
+            pygame.draw.rect(self.screen, YELLOW, bg_rect, 2, border_radius=8)
             
             self.screen.blit(message_text, message_rect)
     
     def draw_powerup_timers(self):
         """Draw active power-up timers."""
-        if not self.paddle.active_powerups:
+        effects = list(self.paddle.active_powerups.items())
+        if self.slow_ball_timer > 0:
+            effects.append((POWERUP_SLOW_BALL, self.slow_ball_timer))
+
+        if not effects:
             return
-        
-        y_offset = 150  # Start below power-up message
-        
-        for powerup_type, remaining_time in self.paddle.active_powerups.items():
-            # Power-up names for display
-            powerup_names = {
-                POWERUP_LARGE_PADDLE: "Large Paddle",
-                POWERUP_SMALL_PADDLE: "Small Paddle",
-                POWERUP_LASER_PADDLE: "Laser Paddle",
-                POWERUP_STICKY_PADDLE: "Sticky Paddle"
-            }
-            
-            name = powerup_names.get(powerup_type, powerup_type)
-            
-            # Special handling for laser paddle
-            if powerup_type == POWERUP_LASER_PADDLE:
-                text = f"{name}: {self.paddle.laser_shots_remaining} shots ({remaining_time:.1f}s)"
-            else:
-                text = f"{name}: {remaining_time:.1f}s"
-            
-            # Draw timer text
-            timer_text = self.font_small.render(text, True, WHITE)
-            timer_rect = timer_text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
-            
-            # Draw background
-            bg_rect = timer_rect.inflate(10, 4)
-            pygame.draw.rect(self.screen, (0, 0, 0), bg_rect)
-            pygame.draw.rect(self.screen, WHITE, bg_rect, 1)
-            
-            # Draw progress bar
-            progress = remaining_time / POWERUP_DURATION
-            bar_width = 100
-            bar_height = 4
-            bar_x = timer_rect.centerx - bar_width // 2
-            bar_y = timer_rect.bottom + 5
-            
-            # Background bar
-            pygame.draw.rect(self.screen, (50, 50, 50), 
-                           (bar_x, bar_y, bar_width, bar_height))
-            
-            # Progress bar
-            progress_width = int(bar_width * progress)
-            if progress > 0.3:
-                color = (0, 255, 0)  # Green
-            elif progress > 0.1:
-                color = (255, 255, 0)  # Yellow
-            else:
-                color = (255, 0, 0)  # Red
-            
-            pygame.draw.rect(self.screen, color, 
-                           (bar_x, bar_y, progress_width, bar_height))
-            
-            self.screen.blit(timer_text, timer_rect)
-            y_offset += 35
-        
-        # Power-up timers
-        self.draw_powerup_timers()
+
+        names = {
+            POWERUP_LARGE_PADDLE: "WIDE",
+            POWERUP_SMALL_PADDLE: "SMALL",
+            POWERUP_LASER_PADDLE: "LASER",
+            POWERUP_STICKY_PADDLE: "STICKY",
+            POWERUP_SLOW_BALL: "SLOW",
+        }
+        x = SCREEN_WIDTH - 186
+        y = 252
+        for powerup_type, remaining_time in effects:
+            panel = pygame.Rect(x, y, 166, 31)
+            pygame.draw.rect(self.screen, PANEL, panel, border_radius=7)
+            pygame.draw.rect(self.screen, PANEL_BORDER, panel, 1, border_radius=7)
+
+            suffix = (
+                f" {self.paddle.laser_shots_remaining}×"
+                if powerup_type == POWERUP_LASER_PADDLE
+                else ""
+            )
+            label = self.font_tiny.render(
+                f"{names.get(powerup_type, powerup_type.upper())}{suffix}", True, WHITE
+            )
+            self.screen.blit(label, (x + 9, y + 7))
+
+            progress = max(0.0, min(1.0, remaining_time / POWERUP_DURATION))
+            pygame.draw.rect(self.screen, (38, 47, 78), (x + 92, y + 13, 63, 5), border_radius=3)
+            pygame.draw.rect(
+                self.screen,
+                POWERUP_COLORS.get(powerup_type, ACCENT),
+                (x + 92, y + 13, int(63 * progress), 5),
+                border_radius=3,
+            )
+            y += 37
     
     def draw_pause_overlay(self):
         """Draw pause screen overlay."""
         # Semi-transparent overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.set_alpha(128)
+        overlay.set_alpha(185)
         overlay.fill(BLACK)
         self.screen.blit(overlay, (0, 0))
         
@@ -515,7 +582,7 @@ class Game:
         """Draw game over screen."""
         # Semi-transparent overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.set_alpha(128)
+        overlay.set_alpha(195)
         overlay.fill(BLACK)
         self.screen.blit(overlay, (0, 0))
         
@@ -528,7 +595,7 @@ class Game:
         score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.screen.blit(score_text, score_rect)
         
-        restart_text = self.font_medium.render("R - Restart | ESC - Menu", True, WHITE)
+        restart_text = self.font_medium.render("SPACE / R - RESTART   •   ESC - MENU", True, WHITE)
         restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
         self.screen.blit(restart_text, restart_rect)
     
@@ -536,7 +603,7 @@ class Game:
         """Draw victory screen."""
         # Semi-transparent overlay
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
-        overlay.set_alpha(128)
+        overlay.set_alpha(195)
         overlay.fill(BLACK)
         self.screen.blit(overlay, (0, 0))
         
@@ -549,7 +616,7 @@ class Game:
         score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
         self.screen.blit(score_text, score_rect)
         
-        restart_text = self.font_medium.render("R - Restart | ESC - Menu", True, WHITE)
+        restart_text = self.font_medium.render("SPACE / R - RESTART   •   ESC - MENU", True, WHITE)
         restart_rect = restart_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
         self.screen.blit(restart_text, restart_rect)
     

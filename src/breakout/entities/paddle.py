@@ -3,7 +3,7 @@
 import pygame
 from ..utils.constants import (
     PADDLE_WIDTH, PADDLE_HEIGHT, PADDLE_SPEED, PADDLE_Y_OFFSET,
-    SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, POWERUP_DURATION
+    SCREEN_WIDTH, SCREEN_HEIGHT, WHITE, POWERUP_DURATION, BALL_SPEED
 )
 from ..utils.helpers import clamp
 
@@ -114,7 +114,8 @@ class Paddle:
         elif mouse_pos and self.last_mouse_pos is None:
             self.last_mouse_pos = mouse_pos
         
-        # Mouse input only if not using keyboard and mouse has moved
+        # Mouse input only after a real mouse event. This prevents the paddle
+        # drifting to x=0 before the player touches the mouse.
         if mouse_pos and not self.using_keyboard:
             target_x = mouse_pos[0] - self.width // 2
             target_x = clamp(target_x, 0, SCREEN_WIDTH - self.width)
@@ -137,12 +138,14 @@ class Paddle:
         elif self.is_sticky:
             paddle_color = (255, 100, 255)  # Magenta for sticky
         
-        # Draw main paddle
-        pygame.draw.rect(screen, paddle_color, self.rect)
+        # Draw a restrained glow behind the paddle, then the main body.
+        glow_rect = self.rect.inflate(10, 8)
+        pygame.draw.rect(screen, (32, 74, 105), glow_rect, border_radius=8)
+        pygame.draw.rect(screen, paddle_color, self.rect, border_radius=6)
         
         # Add a subtle border for better visibility
         border_color = (200, 200, 200) if paddle_color == WHITE else WHITE
-        pygame.draw.rect(screen, border_color, self.rect, 2)
+        pygame.draw.rect(screen, border_color, self.rect, 2, border_radius=6)
         
         # Draw power-up indicators
         if self.has_laser:
@@ -206,11 +209,13 @@ class Paddle:
         )
         
         if powerup_type == POWERUP_LARGE_PADDLE:
-            self.width = int(self.original_width * 1.5)
+            self.active_powerups.pop(POWERUP_SMALL_PADDLE, None)
+            self._set_width(int(self.original_width * 1.5))
             self.active_powerups[powerup_type] = POWERUP_DURATION
         
         elif powerup_type == POWERUP_SMALL_PADDLE:
-            self.width = int(self.original_width * 0.7)
+            self.active_powerups.pop(POWERUP_LARGE_PADDLE, None)
+            self._set_width(int(self.original_width * 0.7))
             self.active_powerups[powerup_type] = POWERUP_DURATION
         
         elif powerup_type == POWERUP_LASER_PADDLE:
@@ -249,7 +254,7 @@ class Paddle:
             
             # Reset effects
             if powerup_type in [POWERUP_LARGE_PADDLE, POWERUP_SMALL_PADDLE]:
-                self.width = self.original_width
+                self._set_width(self.original_width)
             elif powerup_type == POWERUP_LASER_PADDLE:
                 self.has_laser = False
                 self.laser_shots_remaining = 0
@@ -268,28 +273,29 @@ class Paddle:
         if self.laser_cooldown > 0:
             self.laser_cooldown -= dt
         
-        # Auto-fire lasers if we have laser power-up
-        if self.has_laser and self.laser_shots_remaining > 0 and self.laser_cooldown <= 0:
-            self.fire_laser()
-            self.laser_cooldown = self.laser_fire_rate
-        
         # Update existing lasers
         for laser in self.lasers[:]:
             laser.update(dt)
-            if laser.is_off_screen():
+            if not laser.active or laser.is_off_screen():
                 self.lasers.remove(laser)
     
     def fire_laser(self):
         """Fire a laser shot from the paddle."""
         from .laser import Laser
         
-        if self.laser_shots_remaining > 0:
-            # Fire from center of paddle
-            laser_x = self.x + self.width // 2
+        if (
+            self.has_laser
+            and self.laser_shots_remaining > 0
+            and self.laser_cooldown <= 0
+        ):
+            # Fire a pair from the paddle's visible cannons.
             laser_y = self.y - 5
-            laser = Laser(laser_x, laser_y)
-            self.lasers.append(laser)
+            self.lasers.extend([
+                Laser(self.x + self.width * 0.25, laser_y),
+                Laser(self.x + self.width * 0.75, laser_y),
+            ])
             self.laser_shots_remaining -= 1
+            self.laser_cooldown = self.laser_fire_rate
     
     def update_sticky_ball(self, dt: float):
         """Update sticky ball system.
@@ -302,7 +308,7 @@ class Paddle:
             self.stuck_ball.x = self.x + self.width // 2
             self.stuck_ball.y = self.y - self.stuck_ball.radius - 2
             
-            # Auto-release after 1 second
+            # Auto-release eventually so a missed input cannot stall a run.
             self.ball_release_timer -= dt
             if self.ball_release_timer <= 0:
                 self.release_stuck_ball()
@@ -315,7 +321,7 @@ class Paddle:
         """
         if self.is_sticky and not self.stuck_ball:
             self.stuck_ball = ball
-            self.ball_release_timer = 1.0  # Release after 1 second
+            self.ball_release_timer = 5.0
             # Stop ball movement
             ball.velocity_x = 0
             ball.velocity_y = 0
@@ -327,7 +333,7 @@ class Paddle:
             import random
             angle = random.uniform(60, 120)  # Upward angle
             import math
-            speed = 5
+            speed = BALL_SPEED
             self.stuck_ball.velocity_x = math.cos(math.radians(angle)) * speed
             self.stuck_ball.velocity_y = -math.sin(math.radians(angle)) * speed
             self.stuck_ball = None
@@ -340,3 +346,22 @@ class Paddle:
             List of active Laser objects
         """
         return [laser for laser in self.lasers if laser.active]
+
+    def clear_powerups(self):
+        """Clear transient effects, projectiles, and sticky state."""
+        self.release_stuck_ball()
+        self.active_powerups.clear()
+        self._set_width(self.original_width)
+        self.is_sticky = False
+        self.has_laser = False
+        self.laser_shots_remaining = 0
+        self.laser_cooldown = 0
+        self.lasers.clear()
+
+    def _set_width(self, width: int):
+        """Resize around the current center and keep the paddle on screen."""
+        center_x = self.x + self.width / 2
+        self.width = width
+        self.x = clamp(center_x - self.width / 2, 0, SCREEN_WIDTH - self.width)
+        self.rect.x = int(self.x)
+        self.rect.width = self.width

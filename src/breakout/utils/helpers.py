@@ -61,13 +61,16 @@ def get_collision_normal(circle_pos: Tuple[float, float], rect: pygame.Rect) -> 
     dx = cx - closest_x
     dy = cy - closest_y
     
-    # If the closest point is inside the rectangle (shouldn't happen with proper collision)
+    # A fast-moving ball can end a frame with its center inside a brick. Choose
+    # the nearest edge in that case instead of always treating it as vertical.
     if dx == 0 and dy == 0:
-        # Default to vertical collision
-        if cy < rect.centery:
-            return (0.0, -1.0)  # Top
-        else:
-            return (0.0, 1.0)   # Bottom
+        distances = {
+            (-1.0, 0.0): abs(cx - rect.left),
+            (1.0, 0.0): abs(rect.right - cx),
+            (0.0, -1.0): abs(cy - rect.top),
+            (0.0, 1.0): abs(rect.bottom - cy),
+        }
+        return min(distances, key=distances.get)
     
     # Normalize the vector to get the collision normal
     length = math.sqrt(dx * dx + dy * dy)

@@ -32,6 +32,9 @@ class Ball:
             
         self.x = float(x)
         self.y = float(y)
+        self.previous_x = self.x
+        self.previous_y = self.y
+        self.slow_multiplier = 1.0
         
         # Initialize velocity with random angle upward
         self.reset_velocity()
@@ -73,10 +76,11 @@ class Ball:
             self.trail_positions.pop(0)
         
         # Store previous position for collision detection
-        prev_x, prev_y = self.x, self.y
+        self.previous_x = self.x
+        self.previous_y = self.y
         
         # Update position
-        movement_scale = dt * 60  # Scale by 60 for consistent movement
+        movement_scale = dt * 60 * self.slow_multiplier
         self.x += self.velocity_x * movement_scale
         self.y += self.velocity_y * movement_scale
         
@@ -154,12 +158,17 @@ class Ball:
             
             # Position correction to prevent ball from getting stuck inside brick
             if brick_rect:
-                # Move ball outside the brick based on collision normal
-                separation_distance = self.radius + 2  # Extra buffer
-                self.x += nx * separation_distance
-                self.y += ny * separation_distance
-                
-                # Ensure ball doesn't go outside screen bounds
+                # Place the ball just outside the impacted face. Moving it by a
+                # fixed offset can leave it embedded after a slow frame.
+                if nx < -0.5:
+                    self.x = brick_rect.left - self.radius - 1
+                elif nx > 0.5:
+                    self.x = brick_rect.right + self.radius + 1
+                if ny < -0.5:
+                    self.y = brick_rect.top - self.radius - 1
+                elif ny > 0.5:
+                    self.y = brick_rect.bottom + self.radius + 1
+
                 self.x = clamp(self.x, self.radius, SCREEN_WIDTH - self.radius)
                 self.y = clamp(self.y, self.radius, SCREEN_HEIGHT - self.radius)
     
@@ -177,7 +186,9 @@ class Ball:
                 trail_color = (int(WHITE[0] * alpha), int(WHITE[1] * alpha), int(WHITE[2] * alpha))
                 pygame.draw.circle(screen, trail_color, (int(pos[0]), int(pos[1])), trail_radius)
         
-        # Draw main ball
+        # Soft neon halo and main ball
+        pygame.draw.circle(screen, (35, 92, 130), (int(self.x), int(self.y)), self.radius + 4)
+        pygame.draw.circle(screen, (96, 209, 255), (int(self.x), int(self.y)), self.radius + 1)
         pygame.draw.circle(screen, WHITE, (int(self.x), int(self.y)), self.radius)
         
         # Add a subtle highlight for 3D effect
@@ -200,6 +211,14 @@ class Ball:
             Tuple of (vx, vy) velocity components
         """
         return (self.velocity_x, self.velocity_y)
+
+    def get_previous_position(self) -> tuple:
+        """Get the position from before the latest movement step."""
+        return (self.previous_x, self.previous_y)
+
+    def set_slowed(self, slowed: bool):
+        """Enable or disable the temporary slow-ball movement modifier."""
+        self.slow_multiplier = 0.7 if slowed else 1.0
     
     def set_position(self, x: float, y: float):
         """Set the ball position.
@@ -210,6 +229,8 @@ class Ball:
         """
         self.x = float(x)
         self.y = float(y)
+        self.previous_x = self.x
+        self.previous_y = self.y
         self.trail_positions.clear()  # Clear trail when repositioning
     
     def is_below_screen(self) -> bool:

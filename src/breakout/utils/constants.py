@@ -6,15 +6,23 @@ SCREEN_HEIGHT = 600
 FPS = 60
 
 # Colors (RGB)
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-YELLOW = (255, 255, 0)
-ORANGE = (255, 165, 0)
-PURPLE = (128, 0, 128)
-CYAN = (0, 255, 255)
+BLACK = (5, 7, 18)
+WHITE = (238, 246, 255)
+RED = (255, 77, 109)
+GREEN = (64, 224, 163)
+BLUE = (79, 140, 255)
+YELLOW = (255, 211, 92)
+ORANGE = (255, 142, 83)
+PURPLE = (174, 108, 255)
+CYAN = (64, 220, 255)
+
+# Interface colors
+BACKGROUND_TOP = (7, 10, 28)
+BACKGROUND_BOTTOM = (18, 11, 43)
+PANEL = (15, 21, 48)
+PANEL_BORDER = (57, 75, 126)
+MUTED_TEXT = (143, 161, 199)
+ACCENT = (81, 236, 255)
 
 # Paddle settings
 PADDLE_WIDTH = 100
@@ -30,10 +38,10 @@ BALL_MAX_SPEED = 14  # Increased from 10
 # Brick settings
 BRICK_WIDTH = 75
 BRICK_HEIGHT = 20
-BRICK_PADDING = 2  # Reduced from 5 to minimize gaps
+BRICK_PADDING = 3
 BRICK_ROWS = 8
 BRICK_COLS = 10
-BRICK_Y_OFFSET = 60  # Distance from top of screen
+BRICK_Y_OFFSET = 68  # Distance from top of screen
 
 # Game settings
 INITIAL_LIVES = 3

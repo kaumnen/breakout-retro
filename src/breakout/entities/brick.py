@@ -35,8 +35,7 @@ class Brick:
         self.hits_taken = 0
         self.is_destroyed = False
         
-        # Create pygame rect for collision detection - slightly larger to eliminate gaps
-        self.rect = pygame.Rect(self.x - 1, self.y - 1, self.width + 2, self.height + 2)
+        self.rect = pygame.Rect(self.x, self.y, self.width, self.height)
         
         # Visual effects
         self.flash_timer = 0.0
@@ -114,7 +113,9 @@ class Brick:
             )
         
         # Draw main brick
-        pygame.draw.rect(screen, draw_color, self.rect)
+        shadow_rect = self.rect.move(0, 3)
+        pygame.draw.rect(screen, (8, 10, 24), shadow_rect, border_radius=4)
+        pygame.draw.rect(screen, draw_color, self.rect, border_radius=4)
         
         # Draw border for definition
         border_color = (
@@ -122,7 +123,7 @@ class Brick:
             max(0, draw_color[1] - 50),
             max(0, draw_color[2] - 50)
         )
-        pygame.draw.rect(screen, border_color, self.rect, 2)
+        pygame.draw.rect(screen, border_color, self.rect, 2, border_radius=4)
         
         # Draw highlight for 3D effect
         highlight_rect = pygame.Rect(self.rect.x + 2, self.rect.y + 2, self.rect.width - 4, 2)
@@ -131,12 +132,12 @@ class Brick:
             min(255, draw_color[1] + 50),
             min(255, draw_color[2] + 50)
         )
-        pygame.draw.rect(screen, highlight_color, highlight_rect)
+        pygame.draw.rect(screen, highlight_color, highlight_rect, border_radius=2)
         
         # Draw extra border for multi-hit bricks
         if self.max_hits > 1:
             extra_border_color = (255, 255, 255) if self.hits_taken == 0 else (128, 128, 128)
-            pygame.draw.rect(screen, extra_border_color, self.rect, 1)
+            pygame.draw.rect(screen, extra_border_color, self.rect, 1, border_radius=4)
     
     def get_collision_normal(self, ball_pos: tuple) -> tuple:
         """Get collision normal based on ball position.

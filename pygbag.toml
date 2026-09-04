@@ -14,6 +14,3 @@ fps = 60
 optimize = true
 archive = false
 ume_block = 0
-
-# Template settings (use default for now)
-template = "custom"
