@@ -13,7 +13,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pygame", specifier = ">=2.6.1" },
-    { name = "pygbag", specifier = ">=0.9.2" },
+    { name = "pygbag", specifier = "==0.9.3" },
 ]
 
 [[package]]
@@ -33,9 +33,9 @@ wheels = [
 
 [[package]]
 name = "pygbag"
-version = "0.9.2"
+version = "0.9.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5a/27/d6d9cf9c0831481b94606652c0861667d9254aecc59c0f1db0f948a126fe/pygbag-0.9.2.tar.gz", hash = "sha256:0e31860742a8ba9c527135cbb6d64f6d7d8d7b23b71ee87a15f1de9474690c25", size = 152074 }
+sdist = { url = "https://files.pythonhosted.org/packages/9f/85/a71c709305451264abede261cbb58ad964c08fcda4717ebbe2be473962bc/pygbag-0.9.3.tar.gz", hash = "sha256:e1a4d8027ed22fc7e453abe0b4abb35a7bfb4c39fa7f1d1b2a6b1f3a92696349", size = 156287 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/3a/19/6c4b2a515651849138cef43d878eba9a4f8e39113499a99e7c3d97890c5e/pygbag-0.9.2-py3-none-any.whl", hash = "sha256:3a60a80cc28ed21e3d5d98c08a5d8f857911e38e411b6e590ba640158e8656c1", size = 171937 },
+    { url = "https://files.pythonhosted.org/packages/5d/5c/f0c741f4492bc4836625365e4b2e7edba034af0ff424201d49e62e65c67a/pygbag-0.9.3-py3-none-any.whl", hash = "sha256:ada203ff5a214f721029cb3b3741f641b032cde1ccaac60bc8dd9e641f3da3d5", size = 176071 },
 ]

@@ -14,16 +14,17 @@ uv run python main.py
 ## Run in a browser
 
 ```bash
-uv run pygbag main.py
+uv run python scripts/build_web.py --serve
 ```
 
-Open <http://localhost:8000> if the browser does not open automatically.
+Open <http://127.0.0.1:8000>.
 
 ## Controls
 
 | Action | Input |
 | --- | --- |
-| Start or restart | Space, Enter, or left click |
+| Start | Space, Enter, or left click |
+| Restart after a game | Space, Enter, or R |
 | Move paddle | Mouse, arrow keys, or A and D |
 | Fire laser or release ball | Space or left click |
 | Pause or resume | Escape |
@@ -42,7 +43,15 @@ uv run python -m unittest discover -s tests
 ## Web build
 
 ```bash
-uv run pygbag --build main.py
+uv run python scripts/build_web.py
 ```
 
 Static files are written to `build/web`.
+
+Cloudflare Pages build command:
+
+```bash
+pip install pygame pygbag==0.9.3 && python scripts/build_web.py
+```
+
+Set the output directory to `build/web`.
