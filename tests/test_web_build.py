@@ -76,6 +76,21 @@ class WebBuildTests(unittest.TestCase):
                 prepare_web(directory)
             self.assertEqual(index.read_text(), original)
             self.assertFalse((directory / "favicon.png").exists())
+            self.assertFalse((directory / "_headers").exists())
+
+    def test_generated_build_revalidates_assets_after_deployment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            directory = Path(directory)
+            (directory / "index.html").write_text(PAGE, encoding="utf-8")
+            prepare_web(directory)
+            headers = directory / "_headers"
+            self.assertEqual(headers.read_text(encoding="utf-8"), "/*\n  Cache-Control: no-cache\n")
+            first_build = {path.name: path.read_bytes() for path in directory.iterdir()}
+            prepare_web(directory)
+            self.assertEqual(
+                {path.name: path.read_bytes() for path in directory.iterdir()},
+                first_build,
+            )
 
     def test_favicon_is_a_valid_square_png(self):
         icon = favicon_png()

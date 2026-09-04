@@ -15,6 +15,7 @@ DESCRIPTION = (
 )
 SITE_URL = "https://breakout.kaumnen.com/"
 RUNTIME_IDS = {"transfer", "crt", "dlg", "pyconsole", "html", "infobox"}
+CACHE_HEADERS = "/*\n  Cache-Control: no-cache\n"
 
 HEAD = f'''<!-- breakout:head -->
     <title>{TITLE}</title>
@@ -184,6 +185,8 @@ def prepare_web(directory):
     icon = favicon_png()
     index.write_text(html, encoding="utf-8")
     (directory / "favicon.png").write_bytes(icon)
+    # Archive filenames stay the same between deployments, so revalidate them.
+    (directory / "_headers").write_text(CACHE_HEADERS, encoding="utf-8")
 
 
 if __name__ == "__main__":
@@ -191,4 +194,4 @@ if __name__ == "__main__":
     parser.add_argument("directory", nargs="?", type=Path, default=Path("build/web"))
     args = parser.parse_args()
     prepare_web(args.directory)
-    print(f"Prepared {args.directory}/index.html and favicon.png")
+    print(f"Prepared {args.directory}/index.html, favicon.png, and _headers")
